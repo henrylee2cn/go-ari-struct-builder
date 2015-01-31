@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 var (
 	tmpgostructs map[string]GoStruct
 	gostructs    map[string]GoStruct
+	clientAPIBuf *bytes.Buffer
 )
 
 type Swagger struct {
@@ -43,7 +45,7 @@ type Parameter struct {
 	ParamType     string `json:"paramType"`
 	Required      bool   `json:"required"`
 	AllowMultiple bool   `json:"allowMultiple"`
-	Datatype      string `json:"dataType"`
+	DataType      string `json:"dataType"`
 }
 
 type Models struct {
@@ -80,96 +82,7 @@ func Canonicalize(s string) string {
 	return string(a)
 }
 
-func ParseModels(m map[string]interface{}) {
-	for key, value := range m {
-		s := GoStruct{Name: key, Parent: ""}
-		v := value.(map[string]interface{})
-		tmpgostructs[key] = BuildStruct(s, v)
-	}
-	for _, t := range tmpgostructs {
-		for _, st := range t.SubTypes {
-			sub := tmpgostructs[st]
-			sub.Parent = t.Name
-			tmpgostructs[st] = sub
-		}
-	}
-	for ParentsExist() {
-		ProcessSubTypes()
-	}
-	for _, t := range tmpgostructs {
-		gostructs[t.Name] = t
-	}
-}
-
-func ParentsExist() bool {
-	for _, t := range tmpgostructs {
-		if t.Parent != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func ProcessSubTypes() {
-	for _, t := range tmpgostructs {
-		if t.Parent == "" {
-			for _, subtype := range t.SubTypes {
-				st := tmpgostructs[subtype]
-				parent := tmpgostructs[st.Parent]
-				for _, f := range parent.Fields {
-					st.Fields = append(st.Fields, f)
-				}
-				st.Parent = ""
-				tmpgostructs[subtype] = st
-			}
-			gostructs[t.Name] = t
-			delete(tmpgostructs, t.Name)
-		}
-	}
-}
-func BuildStruct(s GoStruct, m map[string]interface{}) GoStruct {
-	for key, value := range m {
-		switch value.(type) {
-		case string:
-			continue
-		case []interface{}:
-			switch key {
-			case "subTypes":
-				v := value.([]interface{})
-				s.SubTypes = BuildSubTypes(v)
-			}
-		case interface{}:
-			v := value.(map[string]interface{})
-			switch key {
-			case "properties":
-				s.Fields = BuildFields(v)
-			}
-		}
-	}
-	return s
-}
-
-func BuildSubTypes(st []interface{}) []string {
-	subtypes := make([]string, 0, 50)
-	for _, value := range st {
-		subtypes = append(subtypes, value.(string))
-	}
-	return subtypes
-}
-
-func BuildFields(m map[string]interface{}) []Field {
-	fields := make([]Field, 0, 5)
-	for key, value := range m {
-		f := Field{Name: Canonicalize(key)}
-		v := value.(map[string]interface{})
-		f = BuildField(f, v)
-		f.JSONName = key
-		fields = append(fields, f)
-	}
-	return fields
-}
-
-func ConvertType(s string) string {
+func convertType(s string) string {
 	if strings.HasPrefix(s, "List[") {
 		typestring := strings.TrimPrefix(s, "List[")
 		typestring = strings.TrimSuffix(typestring, "]")
@@ -189,85 +102,42 @@ func ConvertType(s string) string {
 		return s
 	}
 }
-func BuildField(f Field, m map[string]interface{}) Field {
-	for key, value := range m {
-		switch key {
-		case "type":
-			v := value.(string)
-			f.Type = ConvertType(v)
-		}
-	}
-	return f
-}
-
-func OutputStructs() {
-	for _, s := range gostructs {
-		fmt.Printf("type %s struct {\n", s.Name)
-		for _, field := range s.Fields {
-			fmt.Printf("	%s %s `json:\"%s\"`\n", field.Name, field.Type, field.JSONName)
-		}
-		fmt.Println("}\n")
-	}
-}
-
-func BuildConstructors() {
-	for _, s := range gostructs {
-		fmt.Printf("func New%s() interface{} {\n", s.Name)
-		fmt.Printf("	return %s{}\n", s.Name)
-		fmt.Printf("}\n\n")
-	}
-}
-
-func BuildVar() {
-	fmt.Printf("var (\n")
-	fmt.Printf("	NewStruct map[string]func() interface{}\n")
-	fmt.Printf(")\n\n")
-}
-func BuildInit() {
-	fmt.Printf("func init() {\n")
-	fmt.Printf("NewStruct = make(map[string]func() interface{})\n")
-	for _, s := range gostructs {
-		fmt.Printf("	NewStruct[\"%s\"] = New%s\n", s.Name, s.Name)
-	}
-	fmt.Printf("}\n\n")
-}
 
 func init() {
 	gostructs = make(map[string]GoStruct)
 	tmpgostructs = make(map[string]GoStruct)
+	clientAPIBuf = bytes.NewBufferString("")
 }
 func main() {
-	swaggerdir := flag.String("path", "", "Path to model files")
+	swaggerDir := flag.String("path", "", "Path to model files")
 	buildStructs := flag.Bool("structs", true, "Whether or not to build structs")
 	buildAPI := flag.Bool("api", true, "Whether or not to build the API")
 	flag.Parse()
-	files, err := ioutil.ReadDir(*swaggerdir)
+	files, err := ioutil.ReadDir(*swaggerDir)
 	if err != nil {
 		log.Fatal(err)
 	}
-	for _, swaggerfile := range files {
-		if !swaggerfile.IsDir() {
-			swaggerpath := strings.Join([]string{*swaggerdir, swaggerfile.Name()}, "/")
-			swaggerstring, err := ioutil.ReadFile(swaggerpath)
+	for _, swaggerFile := range files {
+		if !swaggerFile.IsDir() && strings.HasSuffix(swaggerFile.Name(), ".json") {
+			apiBase := strings.TrimSuffix(swaggerFile.Name(), ".json")
+			swaggerPath := strings.Join([]string{*swaggerDir, swaggerFile.Name()}, "/")
+			swaggerString, err := ioutil.ReadFile(swaggerPath)
 			if err != nil {
 				continue
 			}
-			//fmt.Println(string(swaggerstring))
 			var s Swagger
-			json.Unmarshal(swaggerstring, &s)
+			json.Unmarshal(swaggerString, &s)
 			ParseModels(s.Models.(map[string]interface{}))
+			BuildAPIs(apiBase, s)
 		}
 	}
 
-	fmt.Println("package nv\n")
+	fmt.Println("package ari\n")
 	if *buildStructs {
-		BuildConstructors()
-		BuildVar()
-		BuildInit()
 		OutputStructs()
 	}
 
 	if *buildAPI {
-		fmt.Println("API stuff here\n")
+		fmt.Print(clientAPIBuf.String())
 	}
 }
