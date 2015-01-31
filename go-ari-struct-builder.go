@@ -168,30 +168,33 @@ func BuildFields(m map[string]interface{}) []Field {
 	}
 	return fields
 }
+
+func ConvertType(s string) string {
+	if strings.HasPrefix(s, "List[") {
+		typestring := strings.TrimPrefix(s, "List[")
+		typestring = strings.TrimSuffix(typestring, "]")
+		typestring = strings.Join([]string{"[]", typestring}, "")
+		return typestring
+	} else if s == "object" {
+		return "string"
+	} else if s == "long" {
+		return "uint64"
+	} else if s == "double" {
+		return "float64"
+	} else if s == "Date" {
+		return "string"
+	} else if s == "boolean" {
+		return "bool"
+	} else {
+		return s
+	}
+}
 func BuildField(f Field, m map[string]interface{}) Field {
 	for key, value := range m {
 		switch key {
 		case "type":
-			var typestring string
 			v := value.(string)
-			if strings.HasPrefix(v, "List[") {
-				typestring = strings.TrimPrefix(v, "List[")
-				typestring = strings.TrimSuffix(typestring, "]")
-				typestring = strings.Join([]string{"[]", typestring}, "")
-			} else if v == "object" {
-				typestring = "string"
-			} else if v == "long" {
-				typestring = "uint64"
-			} else if v == "double" {
-				typestring = "float64"
-			} else if v == "Date" {
-				typestring = "string"
-			} else if v == "boolean" {
-				typestring = "bool"
-			} else {
-				typestring = v
-			}
-			f.Type = typestring
+			f.Type = ConvertType(v)
 		}
 	}
 	return f
