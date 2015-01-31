@@ -1,35 +1,67 @@
 package main
 
 import (
-	"flag"
-	"io/ioutil"
 	"encoding/json"
+	"flag"
 	"fmt"
-	"unicode"
-	"strings"
+	"io/ioutil"
 	"log"
+	"strings"
+	"unicode"
 )
 
 var (
 	tmpgostructs map[string]GoStruct
-	gostructs map[string]GoStruct
+	gostructs    map[string]GoStruct
 )
+
+type Swagger struct {
+	APIVersion string      `json:"apiVersion"`
+	BasePath   string      `json:"basePath"`
+	APIs       []API       `json:"apis"`
+	Models     interface{} `json:"models"`
+}
+
+type API struct {
+	Path        string      `json:"path"`
+	Description string      `json:"description"`
+	Operations  []Operation `json:"operations"`
+}
+
+type Operation struct {
+	HTTPMethod    string      `json:"httpMethod"`
+	Summary       string      `json:"summary"`
+	Notes         string      `json:"notes"`
+	Nickname      string      `json:"nickname"`
+	ResponseClass string      `json:"responseClass"`
+	Parameters    []Parameter `json:"parameters"`
+}
+
+type Parameter struct {
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	ParamType     string `json:"paramType"`
+	Required      bool   `json:"required"`
+	AllowMultiple bool   `json:"allowMultiple"`
+	Datatype      string `json:"dataType"`
+}
 
 type Models struct {
 	JSON interface{} `json:"models"`
 }
 
 type Field struct {
-	Name string
-	Type string
+	Name     string
+	Type     string
 	JSONName string
 }
 type GoStruct struct {
-	Name string
-	Fields []Field
+	Name     string
+	Fields   []Field
 	SubTypes []string
-	Parent string
+	Parent   string
 }
+
 func Canonicalize(s string) string {
 	a := []rune(s)
 	a[0] = unicode.ToUpper(a[0])
@@ -47,7 +79,6 @@ func Canonicalize(s string) string {
 	}
 	return string(a)
 }
-
 
 func ParseModels(m map[string]interface{}) {
 	for key, value := range m {
@@ -155,7 +186,7 @@ func BuildField(f Field, m map[string]interface{}) Field {
 				typestring = "float64"
 			} else if v == "Date" {
 				typestring = "string"
-			} else if v== "boolean" {
+			} else if v == "boolean" {
 				typestring = "bool"
 			} else {
 				typestring = v
@@ -203,28 +234,37 @@ func init() {
 	tmpgostructs = make(map[string]GoStruct)
 }
 func main() {
-	modeldir := flag.String("models", "", "Path to model files")
+	swaggerdir := flag.String("path", "", "Path to model files")
+	buildStructs := flag.Bool("structs", true, "Whether or not to build structs")
+	buildAPI := flag.Bool("api", true, "Whether or not to build the API")
 	flag.Parse()
-	files, err := ioutil.ReadDir(*modeldir)
+	files, err := ioutil.ReadDir(*swaggerdir)
 	if err != nil {
 		log.Fatal(err)
 	}
-	for _, modelfile := range files {
-		if !modelfile.IsDir() {
-			modelpath := strings.Join([]string{*modeldir, modelfile.Name()}, "/")
-			modelstring, err := ioutil.ReadFile(modelpath)
+	for _, swaggerfile := range files {
+		if !swaggerfile.IsDir() {
+			swaggerpath := strings.Join([]string{*swaggerdir, swaggerfile.Name()}, "/")
+			swaggerstring, err := ioutil.ReadFile(swaggerpath)
 			if err != nil {
 				continue
 			}
-			var m Models
-			json.Unmarshal(modelstring, &m)
-			ParseModels(m.JSON.(map[string]interface{}))
+			//fmt.Println(string(swaggerstring))
+			var s Swagger
+			json.Unmarshal(swaggerstring, &s)
+			ParseModels(s.Models.(map[string]interface{}))
 		}
 	}
 
 	fmt.Println("package nv\n")
-	BuildConstructors()
-	BuildVar()
-	BuildInit()
-	OutputStructs()
+	if *buildStructs {
+		BuildConstructors()
+		BuildVar()
+		BuildInit()
+		OutputStructs()
+	}
+
+	if *buildAPI {
+		fmt.Println("API stuff here\n")
+	}
 }
