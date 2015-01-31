@@ -222,7 +222,7 @@ func main() {
 		}
 	}
 
-	fmt.Println("package main\n")
+	fmt.Println("package nv\n")
 	BuildConstructors()
 	BuildVar()
 	BuildInit()
