@@ -31,14 +31,19 @@ type API struct {
 }
 
 type Operation struct {
-	HTTPMethod    string      `json:"httpMethod"`
-	Summary       string      `json:"summary"`
+	HTTPMethod		string			`json:"httpMethod"`
+	Summary			string    	  `json:"summary"`
 	Notes         string      `json:"notes"`
 	Nickname      string      `json:"nickname"`
 	ResponseClass string      `json:"responseClass"`
 	Parameters    []Parameter `json:"parameters"`
+	ErrorResponses []ErrorReponse `json:"errorResponses"`
 }
 
+type ErrorReponse struct {
+	Code	int		`json:"code"`
+	Reason	string	`json:"reason"`
+}
 type Parameter struct {
 	Name          string `json:"name"`
 	Description   string `json:"description"`

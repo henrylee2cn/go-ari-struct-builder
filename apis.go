@@ -19,7 +19,11 @@ func BuildClientFunc(apiBase string, curPath string, o Operation) {
 	var returnString string
 	p := make(chan string)
 	replacedURL := curPath
+	var hasOptions bool = false
+	var hasErrorResponses bool = false
+	optionBlock := bytes.NewBufferString("")
 	pathArgs := bytes.NewBufferString("")
+	errorBlock := bytes.NewBufferString("")
 	if o.ResponseClass != "void" {
 		returnString = join("(", convertType(o.ResponseClass), ", error)")
 	} else {
@@ -30,11 +34,18 @@ func BuildClientFunc(apiBase string, curPath string, o Operation) {
 			clientAPIBuf.WriteString(s)
 		}
 	}(p)
+	for _, param := range o.Parameters {
+		if !param.Required {
+			hasOptions = true
+		}
+	}
 	funcName := join(Canonicalize(apiBase), Canonicalize(o.Nickname))
 	funcArgs := bytes.NewBufferString("")
 	setArgs := bytes.NewBufferString("")
-	options := bytes.NewBufferString("for index, value := range options {\n")
-	options.WriteString("switch index {\n")
+	if hasOptions {
+		optionBlock.WriteString("for index, value := range options {\n")
+		optionBlock.WriteString("switch index {\n")
+	}
 	var argCount int = 0
 	for _, param := range o.Parameters {
 		if param.Required || param.ParamType == "path" {
@@ -46,29 +57,53 @@ func BuildClientFunc(apiBase string, curPath string, o Operation) {
 				pathArgs.WriteString(join(", ", Canonicalize(param.Name)))
 			}
 		} else {
-			options.WriteString(join("case ", strconv.Itoa(argCount),":\n"))
-			options.WriteString("if len(value) > 0 {\n")
-			options.WriteString(join("paramMap[\"", param.Name, "\"] = value\n"))
-			options.WriteString("}\n")
+			optionBlock.WriteString(join("case ", strconv.Itoa(argCount),":\n"))
+			optionBlock.WriteString("if len(value) > 0 {\n")
+			optionBlock.WriteString(join("paramMap[\"", param.Name, "\"] = value\n"))
+			optionBlock.WriteString("}\n")
 			argCount++
 		}
 	}
 	pathArgs.WriteString(")")
-	options.WriteString("}\n}\n")
+	if hasOptions {
+		optionBlock.WriteString("}\n}\n")
+		funcArgs.WriteString(" options ...string")
+	} else {
+		a := funcArgs.String()
+		funcArgs.Reset()
+		funcArgs.WriteString(strings.TrimRight(a, ","))
+	}
+	if o.ErrorResponses != nil {
+		hasErrorResponses = true
+		errorBlock.WriteString("switch result.StatusCode {\n")
+	}
+	for _, errorResponse := range o.ErrorResponses {
+		errorBlock.WriteString(join ("case ", strconv.Itoa(errorResponse.Code), ":\n"))
+		errorBlock.WriteString(join("err = \"", errorResponse.Reason, "\"\n"))
+	}
+	if hasErrorResponses {
+		errorBlock.WriteString("default:\n")
+		errorBlock.WriteString("err = nil\n")
+		errorBlock.WriteString("}\n")
+	}
 	setURL := join("url := fmt.Sprintf(\"", replacedURL, "\"", pathArgs.String(), "\n")
-	funcArgs.WriteString(" options ...string")
 	p <- join("func ", "(a *AppInstance) ", funcName, "(", funcArgs.String(),") ", returnString,"{\n")
+	p <- "var err error\n"
 	p <- join("paramMap := make(map[string]string)\n")
 	p <- setArgs.String()
 	p <- setURL
-	p <- options.String()
+	p <- optionBlock.String()
 	p <- "body := buildJSON(paramMap)\n"
 	p <- join("result := a.processCommand(url, body, \"", o.HTTPMethod, "\")\n")
 	p <- join("")
-
+	if hasErrorResponses {
+		p <- errorBlock.String()
+	} else {
+		p <- "err = nil\n"
+	}
 	if o.ResponseClass != "void" {
-		p <- join("var r ", convertType(o.ResponseClass), "\n")
-		p <- join("return json.Unmarshal(result.Body, &r), err\n")
+		p <- join("var r *", convertType(o.ResponseClass), "\n")
+		p <- join("return json.Unmarshal(result.Body, r), err\n")
 	} else {
 		p <- "return err\n"
 	}
