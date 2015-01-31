@@ -25,7 +25,7 @@ func BuildClientFunc(apiBase string, curPath string, o Operation) {
 	pathArgs := bytes.NewBufferString("")
 	errorBlock := bytes.NewBufferString("")
 	if o.ResponseClass != "void" {
-		returnString = join("(", convertType(o.ResponseClass), ", error)")
+		returnString = join("(*", convertType(o.ResponseClass), ", error)")
 	} else {
 		returnString = "error"
 	}
@@ -35,7 +35,7 @@ func BuildClientFunc(apiBase string, curPath string, o Operation) {
 		}
 	}(p)
 	for _, param := range o.Parameters {
-		if !param.Required {
+		if !(param.Required || param.ParamType == "path") {
 			hasOptions = true
 		}
 	}
@@ -49,12 +49,16 @@ func BuildClientFunc(apiBase string, curPath string, o Operation) {
 	var argCount int = 0
 	for _, param := range o.Parameters {
 		if param.Required || param.ParamType == "path" {
-			funcArgs.WriteString(join(Canonicalize(param.Name), " ", convertType(param.DataType), ","))
+			pName := Canonicalize(param.Name)
+			if pName == "Variable" {
+				pName = "Var"
+			}
+			funcArgs.WriteString(join(pName, " ", convertType(param.DataType), ","))
 			if param.ParamType == "query" || param.ParamType == "body" {
-				setArgs.WriteString(join("paramMap[\"", param.Name, "\"] = ", Canonicalize(param.Name), "\n"))
+				setArgs.WriteString(join("paramMap[\"", param.Name, "\"] = ", pName, "\n"))
 			} else if param.ParamType == "path" {
 				replacedURL = strings.Replace(replacedURL, join("{", param.Name, "}"), "%s", 1)
-				pathArgs.WriteString(join(", ", Canonicalize(param.Name)))
+				pathArgs.WriteString(join(", ", pName))
 			}
 		} else {
 			optionBlock.WriteString(join("case ", strconv.Itoa(argCount),":\n"))
@@ -79,7 +83,7 @@ func BuildClientFunc(apiBase string, curPath string, o Operation) {
 	}
 	for _, errorResponse := range o.ErrorResponses {
 		errorBlock.WriteString(join ("case ", strconv.Itoa(errorResponse.Code), ":\n"))
-		errorBlock.WriteString(join("err = \"", errorResponse.Reason, "\"\n"))
+		errorBlock.WriteString(join("err = errors.New(\"", errorResponse.Reason, "\")\n"))
 	}
 	if hasErrorResponses {
 		errorBlock.WriteString("default:\n")
@@ -103,7 +107,8 @@ func BuildClientFunc(apiBase string, curPath string, o Operation) {
 	}
 	if o.ResponseClass != "void" {
 		p <- join("var r *", convertType(o.ResponseClass), "\n")
-		p <- join("return json.Unmarshal(result.Body, r), err\n")
+		p <- "json.Unmarshal([]byte(result.ResponseBody), r)\n"
+		p <- "return r, err\n"
 	} else {
 		p <- "return err\n"
 	}

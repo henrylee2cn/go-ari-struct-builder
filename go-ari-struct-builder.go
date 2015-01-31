@@ -17,6 +17,32 @@ var (
 	clientAPIBuf *bytes.Buffer
 )
 
+var apiPreamble string = `import (
+	"fmt"
+	"bytes"
+	"encoding/json"
+	"errors"
+)
+
+func buildJSON(params map[string]string) string {
+	mapsize := len(params)
+	var counter int = 1
+	body := bytes.NewBufferString("{")
+	for key, value := range params {
+		var s string
+		if counter < mapsize {
+			s = fmt.Sprintf("\"%s\":\"%s\",", key, value)
+		} else {
+			s = fmt.Sprintf("\"%s\":\"%s\"", key, value)
+		}
+		body.WriteString(s)
+		counter++
+	}
+	body.WriteString("}")
+	return body.String()
+}
+`
+
 type Swagger struct {
 	APIVersion string      `json:"apiVersion"`
 	BasePath   string      `json:"basePath"`
@@ -136,12 +162,13 @@ func main() {
 			BuildAPIs(apiBase, s)
 		}
 	}
-
-	fmt.Println("package ari\n")
+	fmt.Println("package ari")
+	if *buildAPI {
+		fmt.Println(apiPreamble)
+	}
 	if *buildStructs {
 		OutputStructs()
 	}
-
 	if *buildAPI {
 		fmt.Print(clientAPIBuf.String())
 	}
