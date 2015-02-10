@@ -5,7 +5,7 @@ Build Go structs based on ARI Swagger documentation
 
 Licensing
 ---------
-> Copyright 2014, 2015 N-Visible Technology Lab, Inc.
+> Copyright 2015 N-Visible Technology Lab, Inc.
 > 
 > Licensed under the Apache License, Version 2.0 (the “License”); you may not
 > use this file except in compliance with the License. You may obtain a copy
